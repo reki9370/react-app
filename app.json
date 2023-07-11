@@ -3,6 +3,7 @@
     "name": "UI",
     "slug": "UI",
     "version": "1.0.0",
+    "scheme": "fittrack",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,13 +16,15 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fitTrack.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.reki9370.UI"
     },
     "web": {
       "favicon": "./assets/favicon.png"
