@@ -58,7 +58,7 @@ app.post('/api/add-workout', (req, res) => {
     let ID = req.body.ID
     let workout = req.body.workout
     pool.getConnection().then((connect) => {
-        connect.execute("UPDATE USERINFO SET WORKOUTS = :workout WHERE USERIDENTITY = :ID ", {id: ID, workout: workout}, {maxRows: 1}).then(() => {
+        connect.execute("UPDATE USERINFO SET WORKOUTS = :workout WHERE USERIDENTITY = :ID ", {ID: ID, workout: workout}, {maxRows: 1}).then(() => {
             connect.execute("COMMIT").then(() => {
                 connect.close()
                 res.end(JSON.stringify({}))
@@ -71,6 +71,83 @@ app.post('/api/add-workout', (req, res) => {
         console.log("ERROR: ", error)
         res.end(JSON.stringify({error: 'This one errored out'}))
     })
+});
+
+app.post('/api/ping-oracle-no-data', (req, res) => {
+    pool.getConnection().then((connect) => {
+        connect.execute("SELECT * FROM USERINFO", {}, {maxRows: 1}).then((result) => {
+            res.end(JSON.stringify(result.rows))
+        }).catch((error) => {
+            console.log('Errored On Query: ', error)
+        })
+    })
+    .catch((error) => {
+        console.log("ERROR: ", error)
+        res.end(JSON.stringify({error: 'This one errored out'}))
+    })
+});
+
+app.post('/api/get-profile', (req, res) => {
+    let email = req.body.email;
+    pool.getConnection().then((connect) => {
+        connect.execute("SELECT * FROM USERINFO WHERE email = :email", {email: email}, {maxRows: 1}).then((result) => {
+            res.end(JSON.stringify(result.rows))
+        }).catch((error) => {
+            console.log('Errored On Query: ', error)
+        })
+    })
+    .catch((error) => {
+        console.log("ERROR: ", error)
+        res.end(JSON.stringify({error: 'This one errored out'}))
+    })
+});
+
+app.post('/api/login', (req, res) => {
+    let email = req.body.email;
+    let fullName = req.body.fullName
+    let firstName = req.body.firstName
+    let lastName = req.body.lastName
+
+    pool.getConnection().then((connect) => {
+        connect.execute("SELECT CASE WHEN COUNT(*) > 0 THEN 'yup' ELSE 'nope' END AS response FROM USERINFO WHERE email = :email", {email: email}, {maxRows: 1}).then((result) => {
+            if(result.rows[0][0] == 'nope')
+            {
+                //new user
+                console.log('new user login')
+                connect.execute("INSERT INTO USERINFO (USERIDENTITY, EMAIL, FULLNAME, FIRSTNAME, LASTNAME) VALUES (seq_person.nextval, :email, :fullname, :firstname, :lastname)", {email: email, fullname: fullName, firstname: firstName, lastname: lastName}, {maxRows: 1}).then((result) => { 
+                    connect.execute("COMMIT").then(() => {
+                        connect.close()
+                        res.end(JSON.stringify({userCreated: 'we created a new user'}))
+                    })
+                })
+            }
+            else
+            {
+                //existing user
+                console.log('existing user login')
+                res.end(JSON.stringify({userCreated: 'this user already exists'}))
+            }
+            
+        })
+    })
+    .catch((error) => {
+        console.log("ERROR: ", error)
+        res.end(JSON.stringify({error: 'This one errored out'}))
+    })
+
+    /*
+    pool.getConnection().then((connect) => {
+        connect.execute("SELECT * FROM USERINFO WHERE email = :email", {email: email}, {maxRows: 1}).then((result) => {
+            res.end(JSON.stringify(result.rows))
+        }).catch((error) => {
+            console.log('Errored On Query: ', error)
+        })
+    })
+    .catch((error) => {
+        console.log("ERROR: ", error)
+        res.end(JSON.stringify({error: 'This one errored out'}))
+    })
+    */
 });
 
   
