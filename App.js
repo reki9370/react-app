@@ -1,19 +1,24 @@
 import axios from 'axios'
 import React, { useEffect, useState, useRef } from 'react';
-import { StyleSheet, Text, View, LogBox, TouchableOpacity, ScrollView, SafeAreaView, Animated, Keyboard, Alert, Image } from 'react-native';
+import { StyleSheet, Text, View, LogBox, TouchableOpacity, ScrollView, SafeAreaView, Animated, Keyboard, Alert, ImageBackground } from 'react-native';
 import Footer from './assets/Footer'
-import { Ionicons, MaterialIcons, FontAwesome5, FontAwesome, Feather } from '@expo/vector-icons';
-import { Button, TextInput, Divider } from 'react-native-paper'; 
+import { Ionicons, MaterialIcons, FontAwesome5, FontAwesome, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Avatar, Card, Button, TextInput, Divider, DefaultTheme, Provider, ActivityIndicator } from 'react-native-paper'; 
 import { Cache } from 'react-native-cache';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Draggable from 'react-native-draggable';
 import * as Google from 'expo-auth-session/providers/google';
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import jwt_decode from "jwt-decode";
+import { Image } from 'expo-image'
 
-const config = {
-  clientId: '1059372138625-73eqk2ddf0kuv853idtv16k0kngs9kve.apps.googleusercontent.com',
-};
+let runningImage = require('./assets/runningbackground.jpg')
+let homeImage = require('./assets/background.jpg')
+let liftingImage = require('./assets/liftingbackground.jpg')
+let homeBackgroundImage = require('./assets/homebackground.png')
+
+
+Image.prefetch(['./assets/runningbackground.jpg', './assets/background.jpg'])
 
 /*
   IDEAS: 
@@ -42,7 +47,6 @@ const cache = new Cache({
   backend: AsyncStorage
 });
 
-
 const plateTemplate = {
   45: <View style={{borderWidth:1, height:110, width:10, borderRadius:3}}></View>,
   35: <View style={{borderWidth:1, height:90, width:10, borderRadius:3}}></View>,
@@ -64,27 +68,19 @@ const BAR_WEIGHT = 45
 LogBox.ignoreLogs(["Constants.platform.ios.model has been deprecated in favor of expo-device's Device.modelName property. This API will be removed in SDK 45.",
 'The useProxy'])
 
-WebBrowser.maybeCompleteAuthSession();
-const useProxy = true;
-const redirectUri = AuthSession.makeRedirectUri({
-  useProxy,
-});
-
-console.log(redirectUri)
-
 
 export default function App() {
 
   const [request, response, promptAsync] = Google.useAuthRequest(
     {
       clientId: '1059372138625-krlkmvf535sj6a15lbgvcrkdemgsmf5e.apps.googleusercontent.com',
-      redirectUri: redirectUri,
+      redirectUri: 'https://auth.expo.io/@reki9370/UI',
       scopes: ['openid', 'profile', 'email'],
     }
   );
 
   const rotationValue = useRef(new Animated.Value(0)).current;
-  const[state, setState] = useState('home')
+  const[state, setState] = useState('load initial')
   const[dropdownOpen, setDropdownOpen] = useState(false)
   const[plateCalculatorOpen, setPlateCalculatorOpen] = useState(false)
   const[weight, setWeight] = useState(0)
@@ -96,6 +92,8 @@ export default function App() {
   const[weightQuantities, setWeightQuantities] = useState({})
   const[settingsChanged, setSettingsChanged] = useState(false)
   const[userProfile, setUserProfile] = useState({})
+  const[userProfileDropdownOpen, setUserProfileDropdownOpen] = useState(false)
+  const[imageLoaded, setImageLoaded] = useState(false)
 
 
 
@@ -105,24 +103,28 @@ export default function App() {
       {
         setWeight(cachedData['weight'].value)
       }
-      if(cachedData['weightconfig'] != undefined)
+      if(cachedData['email'] != undefined && cachedData['name'] != undefined && cachedData['picture'] != undefined)
       {
-        setWeightQuantities(cachedData['weightconfig'].value)
+        //User already logged in
+        setState('home')
+        setUserProfile({
+          email: cachedData['email'].value,
+          name: cachedData['name'].value,
+          picture: cachedData['picture'].value || null
+        })
+
+        if(cachedData['weightconfig'+cachedData['email'].value] != undefined)
+        {
+          setWeightQuantities(cachedData['weightconfig'+cachedData['email'].value].value)
+        }
+      }
+      else
+      {
+        setState('log in')
       }
     }))  
     
-    let workout = {
-      legDay:{
-        squats:{
-          reps: 10,
-          sets: 4 
-        },
-        lunges:{
-          reps: 20,
-          sets: 3
-        }
-      }
-    }
+  
     
     /*
     axios.post('http://192.168.67.239:3000/api/add-workout', 
@@ -162,6 +164,7 @@ export default function App() {
       setPlateCalculatorOpen(false)
       setDropdownOpen(false)
     }
+    setUserProfileDropdownOpen(false)
   }, [state]);
 
   const handleSettings = () => {
@@ -274,7 +277,7 @@ export default function App() {
     }
     else if(desiredWeight < Number(weightQuantities['bar weight']) || desiredWeight % 5 != 0 || desiredWeight > 1000)
     {
-      setWeightErrorMessage('Weight Configuration Not Possible')
+      setWeightErrorMessage('Not Possible')
       return 'not possible';
     }
     
@@ -292,7 +295,6 @@ export default function App() {
 
     for(element in weights)
     {
-      console.log(weights[element])
       if(weightQuantities[weights[element]] == undefined)
       {
         available_weights[weights[element]] = 0
@@ -321,11 +323,9 @@ export default function App() {
       }
     }
 
-    console.log("remainder: ", newWeight)
-
     if(newWeight > 0)
     {
-      setWeightErrorMessage('Not Possible With Your Weight Configuration')
+      setWeightErrorMessage('Not Possible')
       return 'not possible'
     }
   
@@ -342,53 +342,223 @@ export default function App() {
   };
 
   const doneEditingWeight = () => {
-    cache.set('weight', weight);
+    cache.set('weight' + userProfile.email, weight);
   }
 
-  const login = async () => {
-    let login = await promptAsync();
-    console.log(login.authentication)
+  const loginWithApple = async () => {
+    setState('load initial')
+    setImageLoaded(false)
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL
+        ],
+      });
+      
+      const name = JSON.stringify(credential.fullName)
 
-    axios.get(
-      'https://www.googleapis.com/oauth2/v1/userinfo?alt=json',
+      const decoded = jwt_decode(credential.identityToken)
+
+      const email = decoded.email
+
+      axios.post('http://192.168.67.239:3000/api/login', 
       {
-        headers: { authorization: "Bearer " +  login.authentication.accessToken},
+        email: email,
+        fullName: name.givenName + " " + name.familyName,
+        firstName: name.givenName,
+        lastName: name.familyName
+      }).then((response) => {
+        console.log(response.data)
+
+        setUserProfile({
+          email: email,
+          name: name.givenName + " " + name.familyName,
+          picture: 'default'
+        })
+
+        setState('home')
+
+      }).catch((error) => {
+        setState('log in')
+      })
+
+      //Send email and name to database. NEED TO SEND NAME PROPERLY OR WE WONT BE ABLE TO ACCESS IT AGAIN (Apple sucks)
+      console.log('stuff here: ', decoded.email)
+
+    } catch (e) {
+      if (e.code === 'ERR_REQUEST_CANCELED') {
+        // handle that the user canceled the sign-in flow
+        setState('log in')
+        console.log('cancelled')
+      } else {
+        // handle other errors
+        setState('log in')
       }
-    ).then((result) => {
-      console.log("data: ", result.data)
-      setUserProfile(result.data)
-    }).catch((error) => {
-      console.log("error: ", error)
-    });
+    }
+  }
+
+  const loginWithGoogle = async () => {
+    setState('load initial')
+    setImageLoaded(false)
+    let login = await promptAsync();
+
+    console.log(login)
+
+    if(login.type != 'cancel' && login.errorCode != 'login-declined')
+    {
+      axios.get(
+        'https://www.googleapis.com/oauth2/v1/userinfo?alt=json',
+        {
+          headers: { authorization: "Bearer " +  login.authentication.accessToken},
+        }
+      ).then(async (result) => {
+
+        console.log(result.data)
+        setUserProfile({
+          email: result.data.email,
+          name: result.data.name,
+          picture: result.data.picture
+        })
+
+        axios.post('http://192.168.67.239:3000/api/login', 
+        {
+          email: result.data.email,
+          fullName: result.data.name,
+          firstName: result.data.given_name,
+          lastName: result.data.family_name
+        }).then((response) => {
+          console.log(response.data)
+          
+          cache.get('weightconfig'+result.data.email).then((config) =>
+          {
+
+            if(config == undefined)
+            {
+              setWeightQuantities({})
+            }
+            else
+            {
+              setWeightQuantities(config)
+            }
+          })
+          
+          cache.set('email', result.data.email)
+          cache.set('name', result.data.name)
+          cache.set('picture', result.data.picture)
+          setState('home')
+        })
+        .catch((error) => {
+          console.log(error)
+          setState('log in')
+        })
+
+      }).catch((error) => {
+        console.log("error: ", error)
+        setImageLoaded(false)
+        setState('log in')
+      });
+    }
+    else
+    {
+      setState('log in')
+    }
   }
 
   const cacheWeightConfig = () => {
-    console.log('setting config')
     setSettingsChanged(false)
-    cache.set('weightconfig', weightQuantities)
+    cache.set('weightconfig'+userProfile.email, weightQuantities)
   }
 
-  if(state == 'home')
+  const logout = async () => {
+    setImageLoaded(false)
+    setState('log in')
+
+    cache.remove('email')
+    cache.remove('name')
+  }
+
+  /*
+            <ImageBackground style={{ opacity: imageLoaded ? 1: 0, flex:1}} onLoad={() => {setImageLoaded(true)}} resizeMode='cover' source={require('./assets/background.jpg')}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <Button mode="contained" icon="google" buttonColor='black' onPress={() => login()} style={{ width: '70%', borderRadius:0, shadowColor: 'black',shadowOffset: { width: 0, height: 10 },shadowOpacity: 0.3,shadowRadius: 10, }}>
+                Log in with Google
+              </Button>
+          </View>
+  */
+
+  if(state == 'load initial')
+  {
+    return (
+      <View style={{ flex:1, justifyContent: 'center', alignItems:'center'}}>
+        <ActivityIndicator size="large" color="black"/>
+        <Text style={{fontWeight:'bold'}}> Logging In ... </Text>
+      </View>
+    )
+  }
+  else if(state == 'log in')
+  {
+    return(
+      <SafeAreaView style={{ flex: 1, backgroundColor: 'black'}}>
+          <View style={{flex:1, backgroundColor:'white'}}>
+            <ImageBackground style={{ opacity: imageLoaded ? 1: 0, flex:1}} onLoad={() => {setImageLoaded(true)}} resizeMode='cover' source={homeImage}>
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <Button mode="contained" icon="google" buttonColor='black' onPress={() => loginWithGoogle()} style={{ width: '70%', borderRadius:0, shadowColor: 'black',shadowOffset: { width: 0, height: 10 },shadowOpacity: 0.3,shadowRadius: 10, }}>
+                    Continue With Google
+                  </Button>
+                  <View style = {{marginVertical: 20}}/>
+                  <Button mode="contained" icon="apple" buttonColor='black' onPress={() => loginWithApple()} style={{ width: '70%', borderRadius:0, shadowColor: 'black',shadowOffset: { width: 0, height: 10 },shadowOpacity: 0.3,shadowRadius: 10, }}>
+                    Continue with Apple
+                  </Button>
+              </View>
+            </ImageBackground>
+          </View>
+        <ActivityIndicator style={{position:'absolute', top:'50%', alignSelf:'center', display: imageLoaded ? 'none': 'flex'}} size="large" color="black"/>
+      </SafeAreaView>
+    )
+  }
+  else if(state == 'home')
   {
     return (
       <SafeAreaView style={{flex:1, backgroundColor: 'black'}}>
         <View style={styles.container}>
           <View style={styles.header}>
-              <Image source={{uri: userProfile['picture'] || null}} style={{height: 40, width: 40, borderRadius:100, marginLeft:10}}/>
-              <Text style={{fontSize: 20, fontWeight: 'bold', color: 'white', flex:1, textAlign:'left', marginLeft:'3%'}}>Home</Text>
-              <TouchableOpacity activeOpacity={1} onPress={() => handleSettings()} style={{ marginRight:'3%', flex:1}}>
-                  <Animated.View style={animatedStyles}>
-                      <Ionicons style={{textAlign:'right'}} name="ios-settings-sharp" size={30} color={state == 'settings' ? 'grey': 'white'} />
-                  </Animated.View>
+            <View style={{flex:1}}>
+              <TouchableOpacity onPress={() => {setUserProfileDropdownOpen(!userProfileDropdownOpen)}} style={{flexDirection:'row', alignItems:'center'}} activeOpacity={1}>
+                <Image source={ userProfile['picture'] == 'default' ? require('./assets/defaultuser.png'): {uri: userProfile['picture'] || null}} style={{height: 40, width: 40, borderRadius:100, marginLeft:10}}/>
+                <MaterialIcons name="arrow-drop-down" style={{ transform: [{ rotate: userProfileDropdownOpen ? '0deg': '180deg' }] }} size={24} color="white" />
               </TouchableOpacity>
+            </View>
+            <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
+              <Text style={{fontSize: 20, fontWeight: 'bold', color: 'white', textAlign:'center'}}>Home</Text>
+            </View>
+            <TouchableOpacity activeOpacity={1} onPress={() => handleSettings()} style={{ flex:1}}>
+                <Animated.View style={animatedStyles}>
+                    <Ionicons style={{textAlign:'right', marginRight:10}} name="ios-settings-sharp" size={30} color={state == 'settings' ? 'grey': 'white'} />
+                </Animated.View>
+            </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.body}>
-            <Text style={styles.bodyText}>Home Screen Stuff</Text>
-          </ScrollView>
-          <Button disabled={false} icon="check" mode="text" textColor='black' onPress={() => {login();}}>
-              <Text style={{fontWeight: settingsChanged ? 'bold': 'normal'}}>Login With Google</Text>
-            </Button>
+          <View style={{ flex: 1 }}>
+            <Image style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} contentFit='cover' source={homeImage} />
+            <ScrollView onTouchStart={() => {setUserProfileDropdownOpen(false)}} contentContainerStyle={styles.body}>
+              <Text style={styles.bodyText}>Home Screen Stuff</Text>
+            </ScrollView>
+          </View>
           <Footer dropdownOpen={dropdownOpen} setWeightError={setWeightError} state={state} setState={setState}/>
+          {userProfileDropdownOpen ? 
+              <View style={{  position: 'absolute', top: '9%', left: '3%',  flex: 1, borderRadius: 4, paddingVertical:15, paddingHorizontal:10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, backgroundColor: '#fff' }} >
+                <Text style={{fontWeight:'bold'}}> 
+                  {userProfile['name']}
+                </Text>
+                <Divider style ={{flex:1, height: 3, marginVertical: 10, width: '100%', color:'black'}}/>
+                <TouchableOpacity onPress={() => {logout()}} activeOpacity={0.5} style={{ flexDirection:'row', justifyContent:'center', alignItems: 'center'}}>
+                  <Text style={{fontWeight:'bold'}}>
+                    Log Out
+                  </Text>
+                  <MaterialCommunityIcons name="logout" size={24} color="black" style={{marginLeft:5}} />
+                </TouchableOpacity>
+              </View>: null
+            }
         </View>
       </SafeAreaView>
     ) 
@@ -398,17 +568,43 @@ export default function App() {
     return (
       <SafeAreaView style={{flex:1, backgroundColor: 'black'}}>
         <View style={styles.container}>
-          <View style={styles.header}>
-              <Text style={{fontSize: 20, fontWeight: 'bold', color: 'white', flex:1, textAlign:'left', marginLeft:'3%'}}>Running</Text>
-              <TouchableOpacity activeOpacity={1} onPress={() => handleSettings()} style={{ marginRight:'3%'}}>
-                  <Animated.View style={animatedStyles}>
-                      <Ionicons style={{textAlign:'right'}} name="ios-settings-sharp" size={30} color={state == 'settings' ? 'grey': 'white'} />
-                  </Animated.View>
+        <View style={styles.header}>
+            <View style={{flex:1}}>
+              <TouchableOpacity onPress={() => {setUserProfileDropdownOpen(!userProfileDropdownOpen)}} style={{flexDirection:'row', alignItems:'center'}} activeOpacity={1}>
+                <Image source={ userProfile['picture'] == 'default' ? require('./assets/defaultuser.png'): {uri: userProfile['picture'] || null}} style={{height: 40, width: 40, borderRadius:100, marginLeft:10}}/>
+                <MaterialIcons name="arrow-drop-down" style={{ transform: [{ rotate: userProfileDropdownOpen ? '0deg': '180deg' }] }} size={24} color="white" />
               </TouchableOpacity>
+            </View>
+            <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
+              <Text style={{fontSize: 20, fontWeight: 'bold', color: 'white', textAlign:'center'}}>Running</Text>
+            </View>
+            <TouchableOpacity activeOpacity={1} onPress={() => handleSettings()} style={{ flex:1}}>
+                <Animated.View style={animatedStyles}>
+                    <Ionicons style={{textAlign:'right', marginRight:10}} name="ios-settings-sharp" size={30} color={state == 'settings' ? 'grey': 'white'} />
+                </Animated.View>
+            </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.body}>
-            <Text style={styles.bodyText}>Running Screen Stuff</Text>
-          </ScrollView>
+          <View style={{ flex: 1 }}>
+            <Image style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} contentFit='cover' source={homeImage} />
+            <ScrollView onTouchStart={() => {setUserProfileDropdownOpen(false)}} contentContainerStyle={styles.body}>
+              <Text style={styles.bodyText}>Running Screen Stuff</Text>
+            </ScrollView>
+          </View>
+
+          {userProfileDropdownOpen ? 
+              <View style={{ position: 'absolute', top: '9%', left: '3%',  flex: 1, borderRadius: 4, paddingVertical:15, paddingHorizontal:10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, backgroundColor: '#fff' }} >
+                <Text style={{fontWeight:'bold'}}> 
+                  {userProfile['name']}
+                </Text>
+                <Divider style ={{flex:1, height: 3, marginVertical: 10, width: '100%', color:'black'}}/>
+                <TouchableOpacity onPress={() => {logout()}} activeOpacity={0.5} style={{ flexDirection:'row', justifyContent:'center', alignItems: 'center'}}>
+                  <Text style={{fontWeight:'bold'}}>
+                    Log Out
+                  </Text>
+                  <MaterialCommunityIcons name="logout" size={24} color="black" style={{marginLeft:5}} />
+                </TouchableOpacity>
+              </View>: null
+            }
           <Footer dropdownOpen={dropdownOpen} setWeightError={setWeightError} state={state} setState={setState} />
         </View>
       </SafeAreaView>
@@ -419,103 +615,56 @@ export default function App() {
     return (
         <SafeAreaView style={{flex:1, backgroundColor: 'black'}}>
           <View style={styles.container}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => toggleDropdown()} activeOpacity={1} style={{flexDirection:'row', flex: 1, alignItems:'center'}}>
-                  <Text style={{fontSize: 20, fontWeight: 'bold', color: 'white', textAlign:'left', marginLeft:'3%'}}>Lifting </Text>
-                  <MaterialIcons name="arrow-drop-down" style={{ transform: [{ rotate: dropdownOpen ? '0deg': '180deg' }] }} size={24} color="white" />
-                </TouchableOpacity>
-                <TouchableOpacity activeOpacity={1} onPress={() => handleSettings()} style={{ marginRight:'3%'}}>
-                    <Animated.View style={animatedStyles}>
-                        <Ionicons style={{textAlign:'right'}} name="ios-settings-sharp" size={30} color={state == 'settings' ? 'grey': 'white'} />
-                    </Animated.View>
-                </TouchableOpacity>
+          <View style={styles.header}>
+            <View style={{flex:1}}>
+              <TouchableOpacity onPress={() => {setDropdownOpen(false); setUserProfileDropdownOpen(!userProfileDropdownOpen)}} style={{flexDirection:'row', alignItems:'center'}} activeOpacity={1}>
+                <Image source={ userProfile['picture'] == 'default' ? require('./assets/defaultuser.png'): {uri: userProfile['picture'] || null}} style={{height: 40, width: 40, borderRadius:100, marginLeft:10}}/>
+                <MaterialIcons name="arrow-drop-down" style={{ transform: [{ rotate: userProfileDropdownOpen ? '0deg': '180deg' }] }} size={24} color="white" />
+              </TouchableOpacity>
             </View>
-            <ScrollView>
-              <View style={{marginTop: '3%', justifyContent:'center', alignItems:'center'}}> 
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-                <Text> EXAMPLE TEXT </Text>
-              </View>
+            <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
+              <TouchableOpacity onPress={() => {setUserProfileDropdownOpen(false); toggleDropdown()}} activeOpacity={1} style={{flexDirection:'row', flex: 1, alignItems:'center'}}>
+                <Text style={{fontSize: 20, fontWeight: 'bold', color: 'white', textAlign:'left', marginLeft:'3%'}}>Lifting </Text>
+                <MaterialIcons name="arrow-drop-down" style={{ transform: [{ rotate: dropdownOpen ? '0deg': '180deg' }] }} size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity activeOpacity={1} onPress={() => handleSettings()} style={{ flex:1}}>
+                <Animated.View style={animatedStyles}>
+                    <Ionicons style={{textAlign:'right', marginRight:10}} name="ios-settings-sharp" size={30} color={state == 'settings' ? 'grey': 'white'} />
+                </Animated.View>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Image style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} contentFit='cover' source={homeImage} />
+            <ScrollView onTouchStart={() => {setUserProfileDropdownOpen(false); setDropdownOpen(false)}} contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: '5%', }}>
+              <Card style={{width: '95%'}}>
+                <Card.Title title="Add Workout" subtitle="Subtitle"/>
+                <Card.Content>
+                  <Text variant="titleLarge">Some Content</Text>
+                  <Text variant="bodyMedium">Subtitle</Text>
+                </Card.Content>
+                <Card.Cover source={{ uri: 'https://picsum.photos/700' }} />
+                <Card.Actions>
+                  <Button onPress={() => {console.log('pressed')}}>Cancel</Button>
+                  <Button>Ok</Button>
+                </Card.Actions>
+              </Card>
+              <Card style={{width: '95%', marginTop: '5%'}}>
+                <Card.Title title="Add Workout" subtitle="Subtitle"/>
+                <Card.Content>
+                  <Text variant="titleLarge">Some Content</Text>
+                  <Text variant="bodyMedium">Subtitle</Text>
+                </Card.Content>
+                <Card.Cover source={{ uri: 'https://picsum.photos/700' }} />
+                <Card.Actions>
+                  <Button onPress={() => {console.log('pressed')}}>Cancel</Button>
+                  <Button>Ok</Button>
+                </Card.Actions>
+              </Card>
             </ScrollView>
-            {dropdownOpen && 
-              <View style={{ position: 'absolute', top: '9%', left: '3%', flex: 1, paddingVertical: 20, paddingHorizontal:15, borderRadius: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, backgroundColor: '#fff' }} >
+          </View>
+            {dropdownOpen ? 
+              <View style={{ position: 'absolute', top: '9%', left: '25%', flex: 1, paddingVertical: 20, paddingHorizontal:15, borderRadius: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, backgroundColor: '#fff' }} >
                 <View style={{flexDirection:'row', marginTop: 10}}>
                   <Text>
                     <Text style={{fontSize: 20}}>Update Weight</Text>
@@ -554,7 +703,21 @@ export default function App() {
                     <FontAwesome name="exclamation-circle" size={15} color="#B00020" />
                     <Text style={{ color:'#B00020', marginLeft:2}}>{weightErrorMessage}</Text>
                   </View>: null}
-              </View>
+              </View>: null
+            }
+            {userProfileDropdownOpen ? 
+              <View style={{ position: 'absolute', top: '9%', left: '3%',  flex: 1, borderRadius: 4, paddingVertical:15, paddingHorizontal:10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, backgroundColor: '#fff' }} >
+                <Text style={{fontWeight:'bold'}}> 
+                  {userProfile['name']}
+                </Text>
+                <Divider style ={{flex:1, height: 3, marginVertical: 10, width: '100%', color:'black'}}/>
+                <TouchableOpacity onPress={() => {logout()}} activeOpacity={0.5} style={{ flexDirection:'row', justifyContent:'center', alignItems: 'center'}}>
+                  <Text style={{fontWeight:'bold'}}>
+                    Log Out
+                  </Text>
+                  <MaterialCommunityIcons name="logout" size={24} color="black" style={{marginLeft:5}} />
+                </TouchableOpacity>
+              </View>: null
             }
             {plateCalculatorOpen ?
               <Draggable touchableOpacityProps={{activeOpacity:1}} x={'50%'} y={150}>
@@ -622,7 +785,6 @@ export default function App() {
                 keyboardType='numeric'
                 value={weightQuantities['45'] || ''}
                 onChangeText={(newQty) => {setSettingsChanged(true); setWeightQuantities((oldWeightQuantities) => {
-                  console.log(oldWeightQuantities)
                   let newWeightQuantities = {...oldWeightQuantities}
                   newWeightQuantities['45'] = newQty
                   return newWeightQuantities
