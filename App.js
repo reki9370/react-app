@@ -1,6 +1,6 @@
 import axios from 'axios'
 import React, { useEffect, useState, useRef } from 'react';
-import { StyleSheet, Text, View, LogBox, TouchableOpacity, ScrollView, SafeAreaView, Animated, Keyboard, Alert } from 'react-native';
+import { StyleSheet, Text, View, LogBox, TouchableOpacity, ScrollView, SafeAreaView, Animated, Keyboard, Alert, Image } from 'react-native';
 import Footer from './assets/Footer'
 import { Ionicons, MaterialIcons, FontAwesome5, FontAwesome, Feather } from '@expo/vector-icons';
 import { Button, TextInput, Divider } from 'react-native-paper'; 
@@ -374,9 +374,7 @@ export default function App() {
       <SafeAreaView style={{flex:1, backgroundColor: 'black'}}>
         <View style={styles.container}>
           <View style={styles.header}>
-              <Text style={{color:'white', fontWeight:'bold', fontSize:20, marginLeft:10}}>
-                User: {userProfile['name'] || "None"}
-              </Text>
+              <Image source={{uri: userProfile['picture'] || null}} style={{height: 40, width: 40, borderRadius:100, marginLeft:10}}/>
               <Text style={{fontSize: 20, fontWeight: 'bold', color: 'white', flex:1, textAlign:'left', marginLeft:'3%'}}>Home</Text>
               <TouchableOpacity activeOpacity={1} onPress={() => handleSettings()} style={{ marginRight:'3%', flex:1}}>
                   <Animated.View style={animatedStyles}>
