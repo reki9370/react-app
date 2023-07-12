@@ -61,7 +61,8 @@ const rightCap = <View style={{borderWidth:1, height:10, width:3, borderRightWid
 const weights = [45, 35, 25, 10, 5, 2.5]
 const BAR_WEIGHT = 45
 
-LogBox.ignoreLogs(["Constants.platform.ios.model has been deprecated in favor of expo-device's Device.modelName property. This API will be removed in SDK 45."])
+LogBox.ignoreLogs(["Constants.platform.ios.model has been deprecated in favor of expo-device's Device.modelName property. This API will be removed in SDK 45.",
+'The useProxy'])
 
 WebBrowser.maybeCompleteAuthSession();
 const useProxy = true;
@@ -76,7 +77,7 @@ export default function App() {
 
   const [request, response, promptAsync] = Google.useAuthRequest(
     {
-      clientId: '1059372138625-73eqk2ddf0kuv853idtv16k0kngs9kve.apps.googleusercontent.com',
+      clientId: '1059372138625-krlkmvf535sj6a15lbgvcrkdemgsmf5e.apps.googleusercontent.com',
       redirectUri: redirectUri,
       scopes: ['openid', 'profile', 'email'],
     }
@@ -94,6 +95,7 @@ export default function App() {
   const[weightErrorMessage, setWeightErrorMessage] = useState("")
   const[weightQuantities, setWeightQuantities] = useState({})
   const[settingsChanged, setSettingsChanged] = useState(false)
+  const[userProfile, setUserProfile] = useState({})
 
 
 
@@ -161,10 +163,6 @@ export default function App() {
       setDropdownOpen(false)
     }
   }, [state]);
-
-  useEffect(() => {
-    
-  }, [response]);
 
   const handleSettings = () => {
       setState('settings')
@@ -347,6 +345,23 @@ export default function App() {
     cache.set('weight', weight);
   }
 
+  const login = async () => {
+    let login = await promptAsync();
+    console.log(login.authentication)
+
+    axios.get(
+      'https://www.googleapis.com/oauth2/v1/userinfo?alt=json',
+      {
+        headers: { authorization: "Bearer " +  login.authentication.accessToken},
+      }
+    ).then((result) => {
+      console.log("data: ", result.data)
+      setUserProfile(result.data)
+    }).catch((error) => {
+      console.log("error: ", error)
+    });
+  }
+
   const cacheWeightConfig = () => {
     console.log('setting config')
     setSettingsChanged(false)
@@ -359,8 +374,11 @@ export default function App() {
       <SafeAreaView style={{flex:1, backgroundColor: 'black'}}>
         <View style={styles.container}>
           <View style={styles.header}>
+              <Text style={{color:'white', fontWeight:'bold', fontSize:20, marginLeft:10}}>
+                User: {userProfile['name'] || "None"}
+              </Text>
               <Text style={{fontSize: 20, fontWeight: 'bold', color: 'white', flex:1, textAlign:'left', marginLeft:'3%'}}>Home</Text>
-              <TouchableOpacity activeOpacity={1} onPress={() => handleSettings()} style={{ marginRight:'3%'}}>
+              <TouchableOpacity activeOpacity={1} onPress={() => handleSettings()} style={{ marginRight:'3%', flex:1}}>
                   <Animated.View style={animatedStyles}>
                       <Ionicons style={{textAlign:'right'}} name="ios-settings-sharp" size={30} color={state == 'settings' ? 'grey': 'white'} />
                   </Animated.View>
@@ -369,7 +387,7 @@ export default function App() {
           <ScrollView contentContainerStyle={styles.body}>
             <Text style={styles.bodyText}>Home Screen Stuff</Text>
           </ScrollView>
-          <Button disabled={false} icon="check" mode="text" textColor='black' onPress={() => {promptAsync();}}>
+          <Button disabled={false} icon="check" mode="text" textColor='black' onPress={() => {login();}}>
               <Text style={{fontWeight: settingsChanged ? 'bold': 'normal'}}>Login With Google</Text>
             </Button>
           <Footer dropdownOpen={dropdownOpen} setWeightError={setWeightError} state={state} setState={setState}/>
