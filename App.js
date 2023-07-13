@@ -10,7 +10,8 @@ import Draggable from 'react-native-draggable';
 import * as Google from 'expo-auth-session/providers/google';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import jwt_decode from "jwt-decode";
-import { Image } from 'expo-image'
+import { Image } from 'expo-image';
+import * as SecureStore from 'expo-secure-store';
 
 let runningImage = require('./assets/runningbackground.jpg')
 let homeImage = require('./assets/background.jpg')
@@ -99,6 +100,7 @@ export default function App() {
 
   useEffect(() => {
     cache.getAll().then((cachedData => {
+      console.log(cachedData)
       if(cachedData['weight'] != undefined)
       {
         setWeight(cachedData['weight'].value)
@@ -362,20 +364,27 @@ export default function App() {
 
       const email = decoded.email
 
-      axios.post('http://192.168.67.239:3000/api/login', 
+      axios.post('https://fittrackapi-ci2d.onrender.com/api/login', 
       {
         email: email,
         fullName: name.givenName + " " + name.familyName,
         firstName: name.givenName,
         lastName: name.familyName
       }).then((response) => {
-        console.log(response.data)
+        console.log('log in response (should be a token): ', response.data.token)
+
+        SecureStore.setItemAsync('token', response.data.token);
 
         setUserProfile({
           email: email,
           name: name.givenName + " " + name.familyName,
           picture: 'default'
         })
+
+          cache.set('email', email)
+          cache.set('name', name.givenName + " " + name.familyName)
+          cache.set('picture', 'default')
+          setState('home')
 
         setState('home')
 
@@ -414,21 +423,22 @@ export default function App() {
         }
       ).then(async (result) => {
 
-        console.log(result.data)
         setUserProfile({
           email: result.data.email,
           name: result.data.name,
           picture: result.data.picture
         })
 
-        axios.post('http://192.168.67.239:3000/api/login', 
+        axios.post('https://fittrackapi-ci2d.onrender.com/api/login', 
         {
           email: result.data.email,
           fullName: result.data.name,
           firstName: result.data.given_name,
           lastName: result.data.family_name
         }).then((response) => {
-          console.log(response.data)
+          console.log('log in response (should be a token): ', response.data.token)
+
+          SecureStore.setItemAsync('token', response.data.token);
           
           cache.get('weightconfig'+result.data.email).then((config) =>
           {
@@ -478,14 +488,20 @@ export default function App() {
     cache.remove('name')
   }
 
-  /*
-            <ImageBackground style={{ opacity: imageLoaded ? 1: 0, flex:1}} onLoad={() => {setImageLoaded(true)}} resizeMode='cover' source={require('./assets/background.jpg')}>
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              <Button mode="contained" icon="google" buttonColor='black' onPress={() => login()} style={{ width: '70%', borderRadius:0, shadowColor: 'black',shadowOffset: { width: 0, height: 10 },shadowOpacity: 0.3,shadowRadius: 10, }}>
-                Log in with Google
-              </Button>
-          </View>
-  */
+  const pingDatabase = () => {
+    SecureStore.getItemAsync('token').then((data) => {
+      axios.post('https://fittrackapi-ci2d.onrender.com/api/attempt-to-get', 
+        {
+          token: data,
+          email: userProfile.email
+        }).then((response) => {
+          console.log(response.data)
+        })
+        .catch((error) => {
+          console.log(error)
+        })
+    })
+  }
 
   if(state == 'load initial')
   {
@@ -540,8 +556,11 @@ export default function App() {
           </View>
           <View style={{ flex: 1 }}>
             <Image style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} contentFit='cover' source={homeImage} />
-            <ScrollView onTouchStart={() => {setUserProfileDropdownOpen(false)}} contentContainerStyle={styles.body}>
+            <ScrollView onTouchStart={() => {setUserProfileDropdownOpen(false)}} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 20 }} >
               <Text style={styles.bodyText}>Home Screen Stuff</Text>
+              <Button icon="check" mode="text" textColor='black' onPress={() => {pingDatabase()}}>
+                <Text style={{fontWeight: settingsChanged ? 'bold': 'normal'}}>Ping Database With Token</Text>
+              </Button>
             </ScrollView>
           </View>
           <Footer dropdownOpen={dropdownOpen} setWeightError={setWeightError} state={state} setState={setState}/>
@@ -586,7 +605,7 @@ export default function App() {
           </View>
           <View style={{ flex: 1 }}>
             <Image style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} contentFit='cover' source={homeImage} />
-            <ScrollView onTouchStart={() => {setUserProfileDropdownOpen(false)}} contentContainerStyle={styles.body}>
+            <ScrollView onTouchStart={() => {setUserProfileDropdownOpen(false)}} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 20 }}>
               <Text style={styles.bodyText}>Running Screen Stuff</Text>
             </ScrollView>
           </View>
